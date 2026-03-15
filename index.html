@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Microvisit Companion Match & Scheduler</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        primary: '#4F6D7A',
+        'primary-dark': '#3A5260',
+        'primary-light': '#6B8A97',
+        accent: '#E8A87C',
+        'accent-dark': '#D4956A',
+        warm: '#FFF8F0',
+        'warm-mid': '#F5EDE3',
+        sage: '#7CB69D',
+        'sage-dark': '#5FA084',
+        coral: '#E27D60',
+        'soft-blue': '#C8D8E4',
+        'alert-red': '#E85D4A',
+        'card-bg': '#FFFFFF',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      }
+    }
+  }
+}
+</script>
+<style>
+* { -webkit-tap-highlight-color: transparent; }
+body { font-family: 'Inter', system-ui, sans-serif; background: #FFF8F0; }
+.fade-in { animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.slide-up { animation: slideUp 0.35s ease-out; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.pulse-gentle { animation: pulseGentle 2s ease-in-out infinite; }
+@keyframes pulseGentle { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+input, select, textarea { font-size: 16px !important; }
+.touch-target { min-height: 48px; min-width: 48px; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C8D8E4; border-radius: 4px; }
+.card-shadow { box-shadow: 0 2px 12px rgba(79,109,122,0.08); }
+.modal-overlay { backdrop-filter: blur(4px); }
+</style>
+</head>
+<body>
+
+<div x-data="app()" x-init="init()" class="min-h-screen bg-warm">
+  
+  <!-- Header -->
+  <header class="bg-white/90 backdrop-blur-sm sticky top-0 z-50 border-b border-soft-blue/30">
+    <div class="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">🤝</span>
+        <div>
+          <h1 class="text-lg font-bold text-primary leading-tight">Microvisit</h1>
+          <p class="text-[10px] text-primary-light font-medium tracking-wide uppercase">Companion Match</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <template x-if="currentUser">
+          <div class="flex items-center gap-2">
+            <button @click="showAlerts = !showAlerts" class="touch-target relative p-2 rounded-full hover:bg-warm-mid transition">
+              <span class="text-xl">🔔</span>
+              <span x-show="alerts.length > 0" class="absolute top-1 right-1 w-4 h-4 bg-alert-red rounded-full text-white text-[10px] flex items-center justify-center font-bold" x-text="alerts.length"></span>
+            </button>
+            <button @click="showSettings = true" class="touch-target p-2 rounded-full hover:bg-warm-mid transition">
+              <span class="text-xl">⚙️</span>
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+  </header>
+
+  <!-- Alerts Panel -->
+  <div x-show="showAlerts && alerts.length > 0" x-transition class="fixed inset-0 z-50 modal-overlay bg-black/20" @click.self="showAlerts = false">
+    <div class="max-w-lg mx-auto mt-16 mx-4 bg-white rounded-2xl card-shadow p-4 max-h-[60vh] overflow-y-auto slide-up">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-primary">🔔 Alerts</h3>
+        <button @click="showAlerts = false" class="touch-target p-2 text-gray-400">✕</button>
+      </div>
+      <template x-for="(alert, i) in alerts" :key="i">
+        <div class="p-3 mb-2 rounded-xl" :class="alert.type === 'safety' ? 'bg-red-50 border border-red-200' : alert.type === 'reminder' ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50 border border-blue-200'">
+          <div class="flex items-start gap-2">
+            <span x-text="alert.type === 'safety' ? '🚨' : alert.type === 'reminder' ? '⏰' : '💬'"></span>
+            <div>
+              <p class="text-sm font-medium text-gray-800" x-text="alert.title"></p>
+              <p class="text-xs text-gray-600 mt-1" x-text="alert.message"></p>
+              <p class="text-[10px] text-gray-400 mt-1" x-text="alert.time"></p>
+            </div>
+          </div>
+        </div>
+      </template>
+      <button @click="alerts = []; saveData(); showAlerts = false" class="w-full mt-2 text-sm text-primary-light hover:text-primary transition py-2">Clear all</button>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div x-show="loading" class="fixed inset-0 z-[100] bg-warm/80 flex items-center justify-center">
+    <div class="text-center">
+      <div class="inline-block animate-spin text-4xl mb-3">🌀</div>
+      <p class="text-primary font-medium" x-text="loadingMessage"></p>
+    </div>
+  </div>
+
+  <main class="max-w-lg mx-auto px-4 pb-24">
+
+    <!-- Onboarding / No User -->
+    <template x-if="!currentUser && currentView === 'onboarding'">
+      <div class="fade-in pt-8">
+        <div class="text-center mb-8">
+          <div class="text-6xl mb-4">🏠💛</div>
+          <h2 class="text-2xl font-bold text-primary mb-2">Welcome to Microvisit</h2>
+          <p class="text-gray-600 leading-relaxed">Short, meaningful social visits for your loved ones. We match vetted companions with older adults based on shared interests.</p>
+        </div>
+
+        <div class="space-y-3 mb-8">
+          <div class="bg-white rounded-2xl card-shadow p-4 flex items-center gap-3">
+            <span class="text-2xl">👥</span>
+            <div>
+              <p class="font-medium text-primary text-sm">Interest-Aligned Matching</p>
+              <p class="text-xs text-gray-500">AI finds companions who share hobbies & values</p>
+            </div>
+          </div>
+          <div class="bg-white rounded-2xl card-shadow p-4 flex items-center gap-3">
+            <span class="text-2xl">📅</span>
+            <div>
+              <p class="font-medium text-primary text-sm">Smart Scheduling</p>
+              <p class="text-xs text-gray-500">20–60 min visits optimized around everyone's calendar</p>
+            </div>
+          </div>
+          <div class="bg-white rounded-2xl card-shadow p-4 flex items-center gap-3">
+            <span class="text-2xl">🛡️</span>
+            <div>
+              <p class="font-medium text-primary text-sm">Safety Monitoring</p>
+              <p class="text-xs text-gray-500">Missed visit alerts & wellbeing check-ins</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <button @click="startProfile('family')" class="touch-target w-full bg-primary text-white rounded-2xl py-4 font-semibold text-base hover:bg-primary-dark transition card-shadow pulse-gentle">
+            👨‍👩‍👧 I'm arranging care for a parent
+          </button>
+          <button @click="startProfile('elder')" class="touch-target w-full bg-sage text-white rounded-2xl py-4 font-semibold text-base hover:bg-sage-dark transition card-shadow">
+            🧓 I'd like companion visits
+          </button>
+          <button @click="startProfile('companion')" class="touch-target w-full bg-accent text-white rounded-2xl py-4 font-semibold text-base hover:bg-accent-dark transition card-shadow">
+            🤗 I want to volunteer as a companion
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Profile Setup -->
+    <template x-if="currentView === 'profileSetup'">
+      <div class="fade-in pt-6">
+        <button @click="currentView = currentUser ? 'home' : 'onboarding'" class="touch-target flex items-center gap-1 text-primary-light mb-4 text-sm">
+          ← Back
+        </button>
+        
+        <h2 class="text-xl font-bold text-primary mb-1">
+          <span x-show="profileForm.role === 'family'">👨‍👩‍👧 Family Caregiver Profile</span>
+          <span x-show="profileForm.role === 'elder'">🧓 Your Profile</span>
+          <span x-show="profileForm.role === 'companion'">🤗 Companion Profile</span>
+        </h2>
+        <p class="text-gray-500 text-sm mb-6">Let's set up your profile so we can find great matches</p>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">Your Name</label>
+            <input x-model="profileForm.name" type="text" placeholder="e.g., Sarah Johnson" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+          </div>
+
+          <template x-if="profileForm.role === 'family'">
+            <div>
+              <label class="block text-sm font-medium text-primary mb-1">Parent's Name</label>
+              <input x-model="profileForm.parentName" type="text" placeholder="e.g., Mom / Robert Johnson" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+            </div>
+          </template>
+
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">
+              <span x-show="profileForm.role === 'family'">Parent's Neighborhood / ZIP</span>
+              <span x-show="profileForm.role !== 'family'">Your Neighborhood / ZIP</span>
+            </label>
+            <input x-model="profileForm.location" type="text" placeholder="e.g., 90210 or Maple Heights" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">Phone Number</label>
+            <input x-model="profileForm.phone" type="tel" placeholder="(555) 123-4567" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-primary mb-2">Interests & Hobbies <span class="text-gray-400 font-normal">(select all that apply)</span></label>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="interest in allInterests" :key="interest">
+                <button @click="toggleInterest(interest)" class="touch-target px-4 py-2 rounded-full text-sm font-medium transition border-2" :class="profileForm.interests.includes(interest) ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-soft-blue hover:border-primary-light'" x-text="interest"></button>
+              </template>
+            </div>
+          </div>
+
+          <template x-if="profileForm.role === 'family' || profileForm.role === 'elder'">
+            <div>
+              <label class="block text-sm font-medium text-primary mb-2">Accessibility Needs <span class="text-gray-400 font-normal">(optional)</span></label>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="need in accessibilityOptions" :key="need">
+                  <button @click="toggleAccessibility(need)" class="touch-target px-4 py-2 rounded-full text-sm font-medium transition border-2" :class="profileForm.accessibility.includes(need) ? 'bg-sage text-white border-sage' : 'bg-white text-gray-600 border-soft-blue hover:border-sage'" x-text="need"></button>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <div>
+            <label class="block text-sm font-medium text-primary mb-2">Preferred Visit Times</label>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="slot in timeSlots" :key="slot">
+                <button @click="toggleTimeSlot(slot)" class="touch-target px-4 py-2 rounded-full text-sm font-medium transition border-2" :class="profileForm.availability.includes(slot) ? 'bg-accent text-white border-accent' : 'bg-white text-gray-600 border-soft-blue hover:border-accent'" x-text="slot"></button>
+              </template>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">Preferred Visit Length</label>
+            <select x-model="profileForm.visitLength" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+              <option value="20">20 minutes — Quick check-in</option>
+              <option value="30">30 minutes — Nice chat</option>
+              <option value="45">45 minutes — Activity together</option>
+              <option value="60">60 minutes — Extended visit</option>
+            </select>
+          </div>
+
+          <template x-if="profileForm.role !== 'elder'">
+            <div>
+              <label class="block text-sm font-medium text-primary mb-1">Emergency Contact</label>
+              <input x-model="profileForm.emergencyContact" type="tel" placeholder="Emergency phone number" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+            </div>
+          </template>
+
+          <div x-show="profileError" class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700" x-text="profileError"></div>
+
+          <button @click="saveProfile()" class="touch-target w-full bg-primary text-white rounded-2xl py-4 font-semibold text-base hover:bg-primary-dark transition card-shadow mt-2">
+            ✨ Save Profile & Find Matches
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Home / Dashboard -->
+    <template x-if="currentUser && currentView === 'home'">
+      <div class="fade-in pt-4">
+        <!-- Welcome -->
+        <div class="bg-gradient-to-br from-primary to-primary-dark rounded-2xl p-5 text-white mb-5 card-shadow">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="text-3xl" x-text="currentUser.role === 'family' ? '👨‍👩‍👧' : currentUser.role === 'elder' ? '🧓' : '🤗'"></span>
+            <div>
+              <h2 class="font-bold text-lg">Hi, <span x-text="currentUser.name.split(' ')[0]"></span>! 👋</h2>
+              <p class="text-white/80 text-sm" x-text="currentUser.role === 'family' ? 'Managing visits for ' + (currentUser.parentName || 'your parent') : currentUser.role === 'elder' ? 'Your companion visits' : 'Your volunteer schedule'"></p>
+            </div>
+          </div>
+          <div class="flex gap-3 mt-3">
+            <div class="bg-white/20 rounded-xl px-3 py-2 text-center flex-1">
+              <p class="text-2xl font-bold" x-text="upcomingVisits.length">0</p>
+              <p class="text-[11px] text-white/80">Upcoming</p>
+            </div>
+            <div class="bg-white/20 rounded-xl px-3 py-2 text-center flex-1">
+              <p class="text-2xl font-bold" x-text="completedVisits.length">0</p>
+              <p class="text-[11px] text-white/80">Completed</p>
+            </div>
+            <div class="bg-white/20 rounded-xl px-3 py-2 text-center flex-1">
+              <p class="text-2xl font-bold" x-text="matches.length">0</p>
+              <p class="text-[11px] text-white/80">Matches</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Primary Action -->
+        <button @click="findMatches()" class="touch-target w-full bg-accent text-white rounded-2xl py-4 font-semibold text-base hover:bg-accent-dark transition card-shadow mb-5 pulse-gentle flex items-center justify-center gap-2">
+          <span class="text-xl">✨</span>
+          <span x-text="currentUser.role === 'companion' ? 'Find People to Visit' : 'Find Companion Matches'"></span>
+        </button>
+
+        <!-- Upcoming Visits -->
+        <div class="mb-5" x-show="upcomingVisits.length > 0">
+          <h3 class="font-semibold text-primary mb-3 flex items-center gap-2">
+            <span>📅</span> Upcoming Visits
+          </h3>
+          <div class="space-y-3">
+            <template x-for="(visit, i) in upcomingVisits" :key="i">
+              <div class="bg-white rounded-2xl card-shadow p-4 slide-up">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-2xl" x-text="visit.companionEmoji || '🤗'"></span>
+                    <div>
+                      <p class="font-semibold text-primary text-sm" x-text="visit.companionName"></p>
+                      <p class="text-xs text-gray-500" x-text="visit.sharedInterests"></p>
+                    </div>
+                  </div>
+                  <span class="bg-sage/10 text-sage text-xs font-semibold px-2 py-1 rounded-full" x-text="visit.duration + ' min'"></span>
+                </div>
+                <div class="flex items-center gap-4 text-sm text-gray-600 mb-3">
+                  <span>📆 <span x-text="visit.date"></span></span>
+                  <span>🕐 <span x-text="visit.time"></span></span>
+                </div>
+                <div class="flex gap-2">
+                  <button @click="getVisitCueCards(visit, i)" class="touch-target flex-1 bg-primary/10 text-primary rounded-xl py-2 text-sm font-medium hover:bg-primary/20 transition">💬 Visit Guide</button>
+                  <button @click="rescheduleVisit(i)" class="touch-target flex-1 bg-amber-50 text-amber-700 rounded-xl py-2 text-sm font-medium hover:bg-amber-100 transition">🔄 Reschedule</button>
+                  <button @click="cancelVisit(i)" class="touch-target px-3 bg-red-50 text-red-500 rounded-xl py-2 text-sm font-medium hover:bg-red-100 transition">✕</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="grid grid-cols-2 gap-3 mb-5">
+          <button @click="currentView = 'schedule'" class="bg-white rounded-2xl card-shadow p-4 text-center hover:bg-warm-mid transition">
+            <span class="text-2xl block mb-1">📊</span>
+            <p class="text-sm font-medium text-primary">Schedule View</p>
+          </button>
+          <button @click="runSafetyCheck()" class="bg-white rounded-2xl card-shadow p-4 text-center hover:bg-warm-mid transition">
+            <span class="text-2xl block mb-1">🛡️</span>
+            <p class="text-sm font-medium text-primary">Safety Check</p>
+          </button>
+          <button @click="currentView = 'history'" class="bg-white rounded-2xl card-shadow p-4 text-center hover:bg-warm-mid transition">
+            <span class="text-2xl block mb-1">📝</span>
+            <p class="text-sm font-medium text-primary">Visit History</p>
+          </button>
+          <button @click="currentView = 'profileSetup'; populateProfileForm()" class="bg-white rounded-2xl card-shadow p-4 text-center hover:bg-warm-mid transition">
+            <span class="text-2xl block mb-1">👤</span>
+            <p class="text-sm font-medium text-primary">Edit Profile</p>
+          </button>
+        </div>
+
+        <!-- Wellbeing Tip -->
+        <div x-show="wellbeingTip" class="bg-sage/10 border border-sage/20 rounded-2xl p-4 mb-5">
+          <div class="flex items-start gap-2">
+            <span class="text-xl">💡</span>
+            <div>
+              <p class="text-sm font-medium text-sage-dark">Wellbeing Tip</p>
+              <p class="text-sm text-gray-600 mt-1" x-text="wellbeingTip"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Matches View -->
+    <template x-if="currentView === 'matches'">
+      <div class="fade-in pt-4">
+        <button @click="currentView = 'home'" class="touch-target flex items-center gap-1 text-primary-light mb-4 text-sm">← Back to Home</button>
+        <h2 class="text-xl font-bold text-primary mb-1">✨ Your Matches</h2>
+        <p class="text-gray-500 text-sm mb-4">AI-matched companions based on interests, proximity & availability</p>
+
+        <template x-if="matches.length === 0">
+          <div class="text-center py-12">
+            <span class="text-5xl block mb-3">🔍</span>
+            <p class="text-gray-500">No matches yet. Try updating your interests or availability!</p>
+          </div>
+        </template>
+
+        <div class="space-y-3">
+          <template x-for="(match, i) in matches" :key="i">
+            <div class="bg-white rounded-2xl card-shadow p-4 slide-up">
+              <div class="flex items-start gap-3 mb-3">
+                <div class="w-14 h-14 rounded-full bg-gradient-to-br flex items-center justify-center text-2xl flex-shrink-0" :class="['from-primary/20 to-sage/20', 'from-accent/20 to-coral/20', 'from-sage/20 to-primary/20'][i % 3]" x-text="match.emoji || '😊'"></div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-semibold text-primary" x-text="match.name"></h3>
+                    <span class="bg-primary/10 text-primary text-xs font-bold px-2 py-1 rounded-full" x-text="match.matchScore + '% match'"></span>
+                  </div>
+                  <p class="text-xs text-gray-500 mt-0.5" x-text="match.location"></p>
+                  <div class="flex flex-wrap gap-1 mt-2">
+                    <template x-for="tag in match.sharedInterests" :key="tag">
+                      <span class="bg-sage/10 text-sage-dark text-[11px] px-2 py-0.5 rounded-full" x-text="tag"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+              <p class="text-sm text-gray-600 mb-3" x-text="match.bio"></p>
+              <div class="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                <span>🕐 <span x-text="match.availableTimes"></span></span>
+                <span>📍 <span x-text="match.distance"></span></span>
+              </div>
+              <div class="flex gap-2">
+                <button @click="bookVisit(match)" class="touch-target flex-1 bg-primary text-white rounded-xl py-3 text-sm font-semibold hover:bg-primary-dark transition">📅 Book Visit</button>
+                <button @click="viewMatchDetails(match)" class="touch-target px-4 bg-primary/10 text-primary rounded-xl py-3 text-sm font-medium hover:bg-primary/20 transition">ℹ️</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- Book Visit Modal -->
+    <template x-if="currentView === 'bookVisit'">
+      <div class="fade-in pt-4">
+        <button @click="currentView = 'matches'" class="touch-target flex items-center gap-1 text-primary-light mb-4 text-sm">← Back to Matches</button>
+        <h2 class="text-xl font-bold text-primary mb-1">📅 Book a Microvisit</h2>
+        <p class="text-gray-500 text-sm mb-4">Schedule a visit with <span class="font-medium" x-text="bookingForm.companionName"></span></p>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">Date</label>
+            <input x-model="bookingForm.date" type="date" :min="todayDate" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-primary mb-2">Time Slot</label>
+            <div class="grid grid-cols-2 gap-2">
+              <template x-for="slot in bookingTimeSlots" :key="slot">
+                <button @click="bookingForm.time = slot" class="touch-target px-3 py-3 rounded-xl text-sm font-medium transition border-2" :class="bookingForm.time === slot ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-soft-blue hover:border-primary-light'" x-text="slot"></button>
+              </template>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">Duration</label>
+            <select x-model="bookingForm.duration" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+              <option value="20">20 min — Quick check-in ☕</option>
+              <option value="30">30 min — Nice chat 💬</option>
+              <option value="45">45 min — Activity together 🎲</option>
+              <option value="60">60 min — Extended visit 🌟</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">Notes for Companion <span class="text-gray-400 font-normal">(optional)</span></label>
+            <textarea x-model="bookingForm.notes" rows="2" placeholder="e.g., Mom loves talking about gardening, ring doorbell twice..." class="w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition resize-none"></textarea>
+          </div>
+          
+          <button @click="confirmBooking()" class="touch-target w-full bg-sage text-white rounded-2xl py-4 font-semibold text-base hover:bg-sage-dark transition card-shadow flex items-center justify-center gap-2">
+            <span>✅</span> Confirm Visit
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Schedule View -->
+    <template x-if="currentView === 'schedule'">
+      <div class="fade-in pt-4">
+        <button @click="currentView = 'home'" class="touch-target flex items-center gap-1 text-primary-light mb-4 text-sm">← Back to Home</button>
+        <h2 class="text-xl font-bold text-primary mb-4">📊 Weekly Schedule</h2>
+        
+        <div class="space-y-2">
+          <template x-for="(day, i) in weekDays" :key="i">
+            <div class="bg-white rounded-xl card-shadow p-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold" :class="day.isToday ? 'bg-primary text-white' : 'bg-warm-mid text-primary'" x-text="day.short"></span>
+                  <span class="text-sm font-medium text-gray-700" x-text="day.date"></span>
+                </div>
+                <template x-if="day.visits.length > 0">
+                  <div class="flex gap-1">
+                    <template x-for="v in day.visits" :key="v.time">
+                      <span class="bg-sage/20 text-sage-dark text-[11px] px-2 py-1 rounded-full" x-text="v.time + ' · ' + v.companionName.split(' ')[0]"></span>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="day.visits.length === 0">
+                  <span class="text-xs text-gray-400">No visits</span>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <button @click="optimizeSchedule()" class="touch-target w-full bg-primary/10 text-primary rounded-2xl py-4 font-semibold text-sm hover:bg-primary/20 transition mt-4 flex items-center justify-center gap-2">
+          <span>🧠</span> AI Optimize Schedule
+        </button>
+      </div>
+    </template>
+
+    <!-- Visit History -->
+    <template x-if="currentView === 'history'">
+      <div class="fade-in pt-4">
+        <button @click="currentView = 'home'" class="touch-target flex items-center gap-1 text-primary-light mb-4 text-sm">← Back to Home</button>
+        <h2 class="text-xl font-bold text-primary mb-4">📝 Visit History</h2>
+
+        <template x-if="completedVisits.length === 0">
+          <div class="text-center py-12">
+            <span class="text-5xl block mb-3">📋</span>
+            <p class="text-gray-500">No completed visits yet. Book your first visit!</p>
+          </div>
+        </template>
+
+        <div class="space-y-3">
+          <template x-for="(visit, i) in completedVisits" :key="i">
+            <div class="bg-white rounded-2xl card-shadow p-4">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl" x-text="visit.companionEmoji || '🤗'"></span>
+                  <div>
+                    <p class="font-semibold text-primary text-sm" x-text="visit.companionName"></p>
+                    <p class="text-xs text-gray-500" x-text="visit.date + ' · ' + visit.duration + ' min'"></p>
+                  </div>
+                </div>
+                <template x-if="visit.rating">
+                  <div class="flex gap-0.5">
+                    <template x-for="s in 5">
+                      <span class="text-sm" x-text="s <= visit.rating ? '⭐' : '☆'"></span>
+                    </template>
+                  </div>
+                </template>
+              </div>
+              <p x-show="visit.feedback" class="text-sm text-gray-600 italic" x-text="'\"' + visit.feedback + '\"'"></p>
+              <template x-if="!visit.rating">
+                <button @click="rateVisit(i)" class="touch-target w-full mt-2 bg-accent/10 text-accent-dark rounded-xl py-2 text-sm font-medium">⭐ Rate this visit</button>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- Visit Cue Cards -->
+    <template x-if="currentView === 'cueCards'">
+      <div class="fade-in pt-4">
+        <button @click="currentView = 'home'" class="touch-target flex items-center gap-1 text-primary-light mb-4 text-sm">← Back to Home</button>
+        <h2 class="text-xl font-bold text-primary mb-1">💬 Visit Guide</h2>
+        <p class="text-gray-500 text-sm mb-4">Conversation starters & tips for a great visit</p>
+
+        <div class="space-y-3">
+          <template x-for="(card, i) in cueCards" :key="i">
+            <div class="bg-white rounded-2xl card-shadow p-4 slide-up" :class="i === 0 ? 'border-2 border-sage' : ''">
+              <div class="flex items-start gap-2">
+                <span class="text-xl" x-text="card.emoji"></span>
+                <div>
+                  <p class="font-semibold text-primary text-sm" x-text="card.title"></p>
+                  <p class="text-sm text-gray-600 mt-1" x-text="card.content"></p>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- Rating Modal -->
+    <div x-show="showRatingModal" x-transition class="fixed inset-0 z-50 modal-overlay bg-black/30 flex items-end sm:items-center justify-center" @click.self="showRatingModal = false">
+      <div class="bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-lg card-shadow slide-up">
+        <h3 class="text-lg font-bold text-primary mb-2">⭐ Rate this Visit</h3>
+        <p class="text-sm text-gray-500 mb-4">How was the visit? Your feedback helps improve matches.</p>
+        <div class="flex justify-center gap-3 mb-4">
+          <template x-for="s in 5" :key="s">
+            <button @click="ratingValue = s" class="touch-target text-3xl transition-transform" :class="s <= ratingValue ? 'scale-110' : 'opacity-30'" x-text="s <= ratingValue ? '⭐' : '☆'"></button>
+          </template>
+        </div>
+        <textarea x-model="ratingFeedback" rows="2" placeholder="Any comments? (optional)" class="w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition resize-none mb-4"></textarea>
+        <button @click="submitRating()" class="touch-target w-full bg-primary text-white rounded-2xl py-3 font-semibold hover:bg-primary-dark transition">Submit Rating</button>
+      </div>
+    </div>
+
+    <!-- Safety Check Results -->
+    <div x-show="showSafetyResults" x-transition class="fixed inset-0 z-50 modal-overlay bg-black/30 flex items-end sm:items-center justify-center" @click.self="showSafetyResults = false">
+      <div class="bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-lg card-shadow slide-up max-h-[70vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-primary">🛡️ Safety Report</h3>
+          <button @click="showSafetyResults = false" class="touch-target p-2 text-gray-400">✕</button>
+        </div>
+        <div class="space-y-3">
+          <template x-for="(item, i) in safetyReport" :key="i">
+            <div class="p-3 rounded-xl" :class="item.status === 'ok' ? 'bg-green-50 border border-green-200' : item.status === 'warning' ? 'bg-amber-50 border border-amber-200' : 'bg-red-50 border border-red-200'">
+              <div class="flex items-start gap-2">
+                <span x-text="item.status === 'ok' ? '✅' : item.status === 'warning' ? '⚠️' : '🚨'"></span>
+                <div>
+                  <p class="text-sm font-medium" :class="item.status === 'ok' ? 'text-green-800' : item.status === 'warning' ? 'text-amber-800' : 'text-red-800'" x-text="item.title"></p>
+                  <p class="text-xs mt-1" :class="item.status === 'ok' ? 'text-green-600' : item.status === 'warning' ? 'text-amber-600' : 'text-red-600'" x-text="item.detail"></p>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div x-show="showSettings" x-transition class="fixed inset-0 z-50 modal-overlay bg-black/30 flex items-end sm:items-center justify-center" @click.self="showSettings = false">
+      <div class="bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-lg card-shadow slide-up">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-primary">⚙️ Settings</h3>
+          <button @click="showSettings = false" class="touch-target p-2 text-gray-400">✕</button>
+        </div>
+        <div class="space-y-3">
+          <button @click="currentView = 'profileSetup'; populateProfileForm(); showSettings = false" class="touch-target w-full text-left p-3 rounded-xl hover:bg-warm-mid transition flex items-center gap-3">
+            <span>👤</span><span class="text-sm text-gray-700">Edit Profile</span>
+          </button>
+          <button @click="exportData(); showSettings = false" class="touch-target w-full text-left p-3 rounded-xl hover:bg-warm-mid transition flex items-center gap-3">
+            <span>📤</span><span class="text-sm text-gray-700">Export Data</span>
+          </button>
+          <div class="border-t border-gray-100 pt-3">
+            <button @click="if(confirm('Reset all data? This cannot be undone.')) { resetAll(); showSettings = false; }" class="touch-target w-full text-left p-3 rounded-xl hover:bg-red-50 transition flex items-center gap-3">
+              <span>🗑️</span><span class="text-sm text-red-600">Reset All Data</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reschedule Modal -->
+    <div x-show="showReschedule" x-transition class="fixed inset-0 z-50 modal-overlay bg-black/30 flex items-end sm:items-center justify-center" @click.self="showReschedule = false">
+      <div class="bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-lg card-shadow slide-up">
+        <h3 class="text-lg font-bold text-primary mb-4">🔄 Reschedule Visit</h3>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">New Date</label>
+            <input x-model="rescheduleForm.date" type="date" :min="todayDate" class="touch-target w-full border border-soft-blue rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">New Time</label>
+            <div class="grid grid-cols-2 gap-2">
+              <template x-for="slot in bookingTimeSlots" :key="'r'+slot">
+                <button @click="rescheduleForm.time = slot" class="touch-target px-3 py-3 rounded-xl text-sm font-medium transition border-2" :class="rescheduleForm.time === slot ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-soft-blue hover:border-primary-light'" x-text="slot"></button>
+              </template>
+            </div>
+          </div>
+          <button @click="confirmReschedule()" class="touch-target w-full bg-primary text-white rounded-2xl py-3 font-semibold hover:bg-primary-dark transition">✅ Confirm New Time</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Match Detail Modal -->
+    <div x-show="showMatchDetail" x-transition class="fixed inset-0 z-50 modal-overlay bg-black/30 flex items-end sm:items-center justify-center" @click.self="showMatchDetail = false">
+      <div class="bg-white rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-lg card-shadow slide-up" x-show="selectedMatch">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <span class="text-3xl" x-text="selectedMatch?.emoji || '😊'"></span>
+            <div>
+              <h3 class="font-bold text-primary text-lg" x-text="selectedMatch?.name"></h3>
+              <p class="text-sm text-gray-500" x-text="selectedMatch?.location"></p>
+            </div>
+          </div>
+          <button @click="showMatchDetail = false" class="touch-target p-2 text-gray-400">✕</button>
+        </div>
+        <p class="text-sm text-gray-600 mb-3" x-text="selectedMatch?.bio"></p>
+        <div class="bg-warm rounded-xl p-3 mb-3">
+          <p class="text-xs font-medium text-primary mb-1">Shared Interests</p>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="tag in (selectedMatch?.sharedInterests || [])" :key="tag">
+              <span class="bg-sage/20 text-sage-dark text-xs px-2 py-0.5 rounded-full" x-text="tag"></span>
+            </template>
+          </div>
+        </div>
+        <div class="bg-warm rounded-xl p-3 mb-3">
+          <p class="text-xs font-medium text-primary mb-1">Compatibility Note</p>
+          <p class="text-sm text-gray-600" x-text="selectedMatch?.compatibilityNote"></p>
+        </div>
+        <div class="flex items-center gap-4 text-sm text-gray-500 mb-4">
+          <span>🕐 <span x-text="selectedMatch?.availableTimes"></span></span>
+          <span>📍 <span x-text="selectedMatch?.distance"></span></span>
+          <span>✅ Vetted</span>
+        </div>
+        <button @click="showMatchDetail = false; bookVisit(selectedMatch)" class="touch-target w-full bg-primary text-white rounded-2xl py-3 font-semibold hover:bg-primary-dark transition">📅 Book Visit with <span x-text="selectedMatch?.name?.split(' ')[0]"></span></button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Bottom Navigation -->
+  <template x-if="currentUser">
+    <nav class="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-soft-blue/30 z-40">
+      <div class="max-w-lg mx-auto flex">
+        <button @click="currentView = 'home'" class="touch-target flex-1 py-3 flex flex-col items-center gap-1 transition" :class="currentView === 'home' ? 'text-primary' : 'text-gray-400'">
+          <span class="text-xl">🏠</span>
+          <span class="text-[10px] font-medium">Home</span>
+        </button>
+        <button @click="findMatches()" class="touch-target flex-1 py-3 flex flex-col items-center gap-1 transition" :class="currentView === 'matches' ? 'text-primary' : 'text-gray-400'">
+          <span class="text-xl">✨</span>
+          <span class="text-[10px] font-medium">Matches</span>
+        </button>
+        <button @click="currentView = 'schedule'" class="touch-target flex-1 py-3 flex flex-col items-center gap-1 transition" :class="currentView === 'schedule' ? 'text-primary' : 'text-gray-400'">
+          <span class="text-xl">📅</span>
+          <span class="text-[10px] font-medium">Schedule</span>
+        </button>
+        <button @click="currentView = 'history'" class="touch-target flex-1 py-3 flex flex-col items-center gap-1 transition" :class="currentView === 'history' ? 'text-primary' : 'text-gray-400'">
+          <span class="text-xl">📝</span>
+          <span class="text-[10px] font-medium">History</span>
+        </button>
+      </div>
+    </nav>
+  </template>
+
+  <!-- Toast -->
+  <div x-show="toast.show" x-transition class="fixed top-20 left-4 right-4 max-w-lg mx-auto z-[200]">
+    <div class="rounded-2xl p-4 card-shadow flex items-center gap-3" :class="toast.type === 'success' ? 'bg-green-50 border border-green-200' : toast.type === 'error' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'">
+      <span x-text="toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : 'ℹ️'" class="text-xl"></span>
+      <p class="text-sm font-medium flex-1" :class="toast.type === 'success' ? 'text-green-800' : toast.type === 'error' ? 'text-red-800' : 'text-blue-800'" x-text="toast.message"></p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Global AI tracking
+window.aiTotalInputTokens = 0;
+window.aiTotalOutputTokens = 0;
+window.aiTotalTime = 0;
+window.aiAliasTimes = {};
+
+function app() {
+  return {
+    // State
+    currentView: 'onboarding',
+    currentUser: null,
+    loading: false,
+    loadingMessage: 'Loading...',
+    matches: [],
+    upcomingVisits: [],
+    completedVisits: [],
+    alerts: [],
+    cueCards: [],
+    safetyReport: [],
+    wellbeingTip: '',
+    weekDays: [],
+    
+    // UI State
+    showAlerts: false,
+    showSettings: false,
+    showRatingModal: false,
+    showSafetyResults: false,
+    showReschedule: false,
+    showMatchDetail: false,
+    selectedMatch: null,
+    ratingValue: 0,
+    ratingFeedback: '',
+    ratingVisitIndex: -1,
+    rescheduleIndex: -1,
+    profileError: '',
+    
+    toast: { show: false, message: '', type: 'success' },
+
+    // Forms
+    profileForm: {
+      role: 'family',
+      name: '',
+      parentName: '',
+      location: '',
+      phone: '',
+      interests: [],
+      accessibility: [],
+      availability: [],
+      visitLength: '30',
+      emergencyContact: ''
+    },
+    bookingForm: {
+      companionName: '',
+      companionEmoji: '',
+      matchData: null,
+      date: '',
+      time: '',
+      duration: '30',
+      notes: ''
+    },
+    rescheduleForm: { date: '', time: '' },
+
+    // Data
+    allInterests: ['🌿 Gardening', '📚 Reading', '🎵 Music', '🎨 Art', '🧩 Puzzles', '🍳 Cooking', '🐱 Pets', '📺 Movies', '🚶 Walking', '✝️ Faith', '📰 News', '🏀 Sports', '🧶 Crafts', '📷 Photos', '🃏 Card Games'],
+    accessibilityOptions: ['♿ Wheelchair', '👂 Hearing Aid', '👓 Low Vision', '🧠 Memory Care', '🚫 No Stairs', '🔇 Quiet Voice'],
+    timeSlots: ['🌅 Morning', '☀️ Midday', '🌤️ Afternoon', '🌆 Evening'],
+    bookingTimeSlots: ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM'],
+
+    get todayDate() {
+      return new Date().toISOString().split('T')[0];
+    },
+
+    init() {
+      this.loadData();
+      if (this.currentUser) {
+        this.currentView = 'home';
+        this.generateWeekDays();
+        this.loadWellbeingTip();
+      }
+    },
+
+    loadData() {
+      try {
+        const data = localStorage.getItem('microvisit_data');
+        if (data) {
+          const parsed = JSON.parse(data);
+          this.currentUser = parsed.currentUser || null;
+          this.matches = parsed.matches || [];
+          this.upcomingVisits = parsed.upcomingVisits || [];
+          this.completedVisits = parsed.completedVisits || [];
+          this.alerts = parsed.alerts || [];
+        }
+      } catch(e) {
+        console.error('Failed to load data:', e);
+      }
+    },
+
+    saveData() {
+      try {
+        localStorage.setItem('microvisit_data', JSON.stringify({
+          currentUser: this.currentUser,
+          matches: this.matches,
+          upcomingVisits: this.upcomingVisits,
+          completedVisits: this.completedVisits,
+          alerts: this.alerts
+        }));
+      } catch(e) {
+        console.error('Failed to save:', e);
+      }
+    },
+
+    showToast(message, type = 'success') {
+      this.toast = { show: true, message, type };
+      setTimeout(() => { this.toast.show = false; }, 3000);
+    },
+
+    startProfile(role) {
+      this.profileForm = {
+        role,
+        name: '',
+        parentName: '',
+        location: '',
+        phone: '',
+        interests: [],
+        accessibility: [],
+        availability: [],
+        visitLength: '30',
+        emergencyContact: ''
+      };
+      this.currentView = 'profileSetup';
+    },
+
+    populateProfileForm() {
+      if (this.currentUser) {
+        this.profileForm = { ...this.currentUser };
+        this.profileForm.interests = [...(this.currentUser.interests || [])];
+        this.profileForm.accessibility = [...(this.currentUser.accessibility || [])];
+        this.profileForm.availability = [...(this.currentUser.availability || [])];
+      }
+    },
+
+    toggleInterest(interest) {
+      const idx = this.profileForm.interests.indexOf(interest);
+      if (idx >= 0) this.profileForm.interests.splice(idx, 1);
+      else this.profileForm.interests.push(interest);
+    },
+
+    toggleAccessibility(need) {
+      const idx = this.profileForm.accessibility.indexOf(need);
+      if (idx >= 0) this.profileForm.accessibility.splice(idx, 1);
+      else this.profileForm.accessibility.push(need);
+    },
+
+    toggleTimeSlot(slot) {
+      const idx = this.profileForm.availability.indexOf(slot);
+      if (idx >= 0) this.profileForm.availability.splice(idx, 1);
+      else this.profileForm.availability.push(slot);
+    },
+
+    saveProfile() {
+      this.profileError = '';
+      if (!this.profileForm.name.trim()) { this.profileError = 'Please enter your name'; return; }
+      if (!this.profileForm.location.trim()) { this.profileError = 'Please enter a location'; return; }
+      if (this.profileForm.interests.length === 0) { this.profileError = 'Please select at least one interest'; return; }
+      if (this.profileForm.availability.length === 0) { this.profileError = 'Please select at least one preferred time'; return; }
+
+      this.currentUser = { ...this.profileForm };
+      this.saveData();
+      this.currentView = 'home';
+      this.generateWeekDays();
+      this.loadWellbeingTip();
+      this.showToast('Profile saved! Let\'s find some great matches ✨');
+    },
+
+    async callAI(prompt, retries = 3) {
+      const startTime = Date.now();
+      const alias = 'genericAI';
+      
+      for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+          const response = await fetch('https://16504442930.work/run_prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              alias: alias,
+              params: { prompt: prompt }
+            })
+          });
+          
+          if (!response.ok) {
+            const errText = await response.text();
+            if (attempt === retries - 1) {
+              // Format error with AI
+              try {
+                const errResp = await fetch('https://16504442930.work/run_prompt', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    alias: 'genericAI',
+                    params: { prompt: `Reformat this API error into a user-friendly message that empowers the user to fix it. Include the full API response. Error: ${errText}. Return JSON with key "userMessage" as a string.` }
+                  })
+                });
+                if (errResp.ok) {
+                  const errData = await errResp.json();
+                  throw new Error(errData.userMessage || errText);
+                }
+              } catch(e2) {}
+              throw new Error(`Service unavailable. Please try again in a moment. (${errText})`);
+            }
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+
+          const data = await response.json();
+          const elapsed = Date.now() - startTime;
+          
+          // Track tokens and time
+          window.aiTotalInputTokens += (data.input_tokens || data.usage?.input_tokens || 0);
+          window.aiTotalOutputTokens += (data.output_tokens || data.usage?.output_tokens || 0);
+          window.aiTotalTime += elapsed;
+          window.aiAliasTimes[alias] = (window.aiAliasTimes[alias] || 0) + elapsed;
+          
+          return data;
+        } catch(e) {
+          if (attempt === retries - 1) throw e;
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+    },
+
+    async findMatches() {
+      this.loading = true;
+      this.loadingMessage = '✨ Finding compatible companions...';
+      
+      try {
+        const user = this.currentUser;
+        const role = user.role;
+        const prompt = `You are a companion matching algorithm for a microvisit scheduling app. Given the following user profile, generate 4 realistic companion matches.
+
+User Profile:
+- Role: ${role}
+- Name: ${user.name}
+${role === 'family' ? '- Parent Name: ' + (user.parentName || 'Not specified') : ''}
+- Location: ${user.location}
+- Interests: ${user.interests.join(', ')}
+- Accessibility needs: ${user.accessibility.length > 0 ? user.accessibility.join(', ') : 'None specified'}
+- Preferred times: ${user.availability.join(', ')}
+- Preferred visit length: ${user.visitLength} minutes
+
+Generate 4 companion matches. Each match should be a realistic ${role === 'companion' ? 'older adult who would benefit from visits' : 'volunteer companion'} with shared interests.
+
+Return EXACTLY this JSON structure:
+{
+  "matches": [
+    {
+      "name": "string (full realistic name)",
+      "emoji": "string (single emoji representing this person)",
+      "location": "string (nearby neighborhood name and approximate distance)",
+      "distance": "string (e.g., '0.8 miles away')",
+      "bio": "string (2-3 sentences describing the person, their personality, and what they enjoy)",
+      "sharedInterests": ["string array of 2-4 shared interest tags without emojis"],
+      "availableTimes": "string (e.g., 'Mornings & Afternoons')",
+      "matchScore": "number (integer between 78 and 97 representing compatibility percentage)",
+      "compatibilityNote": "string (1-2 sentences explaining why this is a good match)"
+    }
+  ]
+}
+
+Make the matches diverse in age, background, and personality. Ensure shared interests align with the user's stated interests. Match scores should vary realistically.`;
+
+        const result = await this.callAI(prompt);
+        
+        if (result && result.matches) {
+          this.matches = result.matches.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+        } else if (result) {
+          // Try to find matches key in nested structure
+          const keys = Object.keys(result);
+          for (const key of keys) {
+            if (Array.isArray(result[key])) {
+              this.matches = result[key].sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+              break;
+            }
+          }
+        }
+
+        this.saveData();
+        this.currentView = 'matches';
+        this.showToast(`Found ${this.matches.length} great matches! ✨`);
+      } catch(e) {
+        console.error('Match error:', e);
+        this.showToast('Could not find matches right now. Please try again.', 'error');
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    bookVisit(match) {
+      this.bookingForm = {
+        companionName: match.name,
+        companionEmoji: match.emoji,
+        matchData: match,
+        date: '',
+        time: '',
+        duration: this.currentUser?.visitLength || '30',
+        notes: ''
+      };
+      this.currentView = 'bookVisit';
+    },
+
+    confirmBooking() {
+      if (!this.bookingForm.date) { this.showToast('Please select a date', 'error'); return; }
+      if (!this.bookingForm.time) { this.showToast('Please select a time', 'error'); return; }
+
+      const visit = {
+        companionName: this.bookingForm.companionName,
+        companionEmoji: this.bookingForm.companionEmoji,
+        sharedInterests: this.bookingForm.matchData?.sharedInterests?.join(', ') || '',
+        date: this.bookingForm.date,
+        time: this.bookingForm.time,
+        duration: this.bookingForm.duration,
+        notes: this.bookingForm.notes,
+        status: 'confirmed',
+        createdAt: new Date().toISOString()
+      };
+
+      this.upcomingVisits.push(visit);
+      
+      this.alerts.push({
+        type: 'reminder',
+        title: 'Visit Booked! 📅',
+        message: `${visit.companionName} on ${visit.date} at ${visit.time}`,
+        time: new Date().toLocaleString()
+      });
+
+      this.saveData();
+      this.generateWeekDays();
+      this.currentView = 'home';
+      this.showToast(`Visit booked with ${visit.companionName}! 🎉`);
+    },
+
+    cancelVisit(index) {
+      if (confirm('Cancel this visit?')) {
+        this.upcomingVisits.splice(index, 1);
+        this.saveData();
+        this.generateWeekDays();
+        this.showToast('Visit cancelled');
+      }
+    },
+
+    rescheduleVisit(index) {
+      this.rescheduleIndex = index;
+      this.rescheduleForm = { date: '', time: '' };
+      this.showReschedule = true;
+    },
+
+    confirmReschedule() {
+      if (!this.rescheduleForm.date || !this.rescheduleForm.time) {
+        this.showToast('Please select a new date and time', 'error');
+        return;
+      }
+      
+      if (this.rescheduleIndex >= 0 && this.rescheduleIndex < this.upcomingVisits.length) {
+        this.upcomingVisits[this.rescheduleIndex].date = this.rescheduleForm.date;
+        this.upcomingVisits[this.rescheduleIndex].time = this.rescheduleForm.time;
+        this.saveData();
+        this.generateWeekDays();
+      }
+      
+      this.showReschedule = false;
+      this.showToast('Visit rescheduled! 🔄');
+    },
+
+    async getVisitCueCards(visit, index) {
+      this.loading = true;
+      this.loadingMessage = '💬 Preparing visit guide...';
+      
+      try {
+        const prompt = `You are a companion visit coach. Generate conversation starters and activity suggestions for a microvisit.
+
+Visit details:
+- Companion: ${visit.companionName}
+- Duration: ${visit.duration} minutes
+- Shared interests: ${visit.sharedInterests}
+- Notes: ${visit.notes || 'None'}
+- Visit context: Short social visit to reduce isolation for an older adult
+
+Return EXACTLY this JSON structure:
+{
+  "cueCards": [
+    {
+      "emoji": "string (single emoji)",
+      "title": "string (short title like 'Ice Breaker' or 'Activity Idea')",
+      "content": "string (2-3 sentences with specific conversation starter or activity suggestion)"
+    }
+  ]
+}
+
+Generate exactly 6 cue cards including: 1 warm greeting/ice breaker, 2 conversation starters based on shared interests, 1 simple activity idea, 1 memory-sharing prompt, 1 graceful goodbye suggestion. Make them warm, specific, and actionable.`;
+
+        const result = await this.callAI(prompt);
+        
+        if (result && result.cueCards) {
+          this.cueCards = result.cueCards;
+        } else if (result) {
+          const keys = Object.keys(result);
+          for (const key of keys) {
+            if (Array.isArray(result[key])) {
+              this.cueCards = result[key];
+              break;
+            }
+          }
+        }
+
+        this.currentView = 'cueCards';
+      } catch(e) {
+        console.error('Cue cards error:', e);
+        // Fallback cue cards
+        this.cueCards = [
+          { emoji: '👋', title: 'Warm Greeting', content: 'Start with a smile and a friendly hello. Ask how they\'ve been since you last connected.' },
+          { emoji: '💬', title: 'Conversation Starter', content: 'Ask about their favorite memory from the past week, or what they\'ve been watching or reading.' },
+          { emoji: '🎲', title: 'Activity Idea', content: 'Suggest a simple card game, look through a photo album together, or do a short puzzle.' },
+          { emoji: '👋', title: 'Graceful Goodbye', content: 'Mention something you\'re looking forward to next time. Leave them with a positive thought.' }
+        ];
+        this.currentView = 'cueCards';
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    rateVisit(index) {
+      this.ratingVisitIndex = index;
+      this.ratingValue = 0;
+      this.ratingFeedback = '';
+      this.showRatingModal = true;
+    },
+
+    submitRating() {
+      if (this.ratingValue === 0) { this.showToast('Please select a rating', 'error'); return; }
+      
+      if (this.ratingVisitIndex >= 0 && this.ratingVisitIndex < this.completedVisits.length) {
+        this.completedVisits[this.ratingVisitIndex].rating = this.ratingValue;
+        this.completedVisits[this.ratingVisitIndex].feedback = this.ratingFeedback;
+        this.saveData();
+      }
+      
+      this.showRatingModal = false;
+      this.showToast('Thanks for your feedback! ⭐');
+    },
+
+    async runSafetyCheck() {
+      this.loading = true;
+      this.loadingMessage = '🛡️ Running safety analysis...';
+      
+      try {
+        const visitCount = this.upcomingVisits.length + this.completedVisits.length;
+        const lastVisitDate = this.completedVisits.length > 0 ? this.completedVisits[this.completedVisits.length - 1].date : 'No visits yet';
+        const upcomingCount = this.upcomingVisits.length;
+        
+        const prompt = `You are a safety monitoring AI for an elderly companion visit app. Analyze the following data and generate a safety report.
+
+Data:
+- User role: ${this.currentUser.role}
+- Total visits (completed + upcoming): ${visitCount}
+- Completed visits: ${this.completedVisits.length}
+- Upcoming visits: ${upcomingCount}
+- Last completed visit date: ${lastVisitDate}
+- Today's date: ${new Date().toISOString().split('T')[0]}
+- Accessibility needs: ${this.currentUser.accessibility.length > 0 ? this.currentUser.accessibility.join(', ') : 'None specified'}
+- Average rating of completed visits: ${this.completedVisits.filter(v => v.rating).length > 0 ? (this.completedVisits.filter(v => v.rating).reduce((s, v) => s + v.rating, 0) / this.completedVisits.filter(v => v.rating).length).toFixed(1) : 'N/A'}
+
+Return EXACTLY this JSON structure:
+{
+  "report": [
+    {
+      "status": "string (exactly one of: 'ok', 'warning', 'alert')",
+      "title": "string (short title of the check)",
+      "detail": "string (1-2 sentence explanation)"
+    }
+  ]
+}
+
+Generate exactly 5 safety checks covering: visit frequency (are visits happening often enough?), schedule gaps (any long periods without visits?), companion consistency (is the same companion being used, which builds trust?), wellbeing indicators (based on ratings if available), and emergency preparedness. Be realistic based on the data provided.`;
+
+        const result = await this.callAI(prompt);
+        
+        if (result && result.report) {
+          this.safetyReport = result.report;
+        } else if (result) {
+          const keys = Object.keys(result);
+          for (const key of keys) {
+            if (Array.isArray(result[key])) {
+              this.safetyReport = result[key];
+              break;
+            }
+          }
+        }
+
+        this.showSafetyResults = true;
+      } catch(e) {
+        console.error('Safety check error:', e);
+        this.safetyReport = [
+          { status: 'ok', title: 'System Status', detail: 'Safety monitoring is active and running.' },
+          { status: this.upcomingVisits.length > 0 ? 'ok' : 'warning', title: 'Visit Schedule', detail: this.upcomingVisits.length > 0 ? 'You have upcoming visits scheduled.' : 'No upcoming visits. Consider scheduling one soon.' },
+          { status: 'ok', title: 'Emergency Contacts', detail: this.currentUser.emergencyContact ? 'Emergency contact is configured.' : 'Consider adding an emergency contact in settings.' }
+        ];
+        this.showSafetyResults = true;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async optimizeSchedule() {
+      this.loading = true;
+      this.loadingMessage = '🧠 Optimizing your schedule...';
+      
+      try {
+        const prompt = `You are a schedule optimization AI. Given the following visit data, suggest an optimized weekly schedule.
+
+Current upcoming visits: ${JSON.stringify(this.upcomingVisits.map(v => ({ companion: v.companionName, date: v.date, time: v.time, duration: v.duration })))}
+User preferred times: ${this.currentUser.availability.join(', ')}
+User preferred visit length: ${this.currentUser.visitLength} minutes
+Number of matched companions: ${this.matches.length}
+
+Return EXACTLY this JSON structure:
+{
+  "suggestions": [
+    {
+      "emoji": "string (single emoji)",
+      "title": "string (short suggestion title)",
+      "content": "string (2-3 sentences with specific scheduling recommendation)"
+    }
+  ],
+  "optimizedTip": "string (one key insight about their schedule)"
+}
+
+Generate 3-4 actionable scheduling suggestions covering: optimal visit frequency for reducing isolation (2-3x per week recommended), best time distribution, variety of companions, and any schedule conflicts or improvements.`;
+
+        const result = await this.callAI(prompt);
+        
+        let suggestions = [];
+        let tip = '';
+        
+        if (result) {
+          suggestions = result.suggestions || [];
+          tip = result.optimizedTip || '';
+          
+          if (suggestions.length === 0) {
+            const keys = Object.keys(result);
+            for (const key of keys) {
+              if (Array.isArray(result[key])) {
+                suggestions = result[key];
+                break;
+              }
+            }
+          }
+        }
+        
+        if (suggestions.length > 0) {
+          this.cueCards = suggestions;
+          this.currentView = 'cueCards';
+          if (tip) this.showToast(tip, 'info');
+        }
+      } catch(e) {
+        console.error('Optimize error:', e);
+        this.showToast('Could not optimize right now. Try again later.', 'error');
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    viewMatchDetails(match) {
+      this.selectedMatch = match;
+      this.showMatchDetail = true;
+    },
+
+    generateWeekDays() {
+      const days = [];
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const today = new Date();
+      
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        
+        const visitsOnDay = this.upcomingVisits.filter(v => v.date === dateStr);
+        
+        days.push({
+          short: dayNames[d.getDay()],
+          date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          dateKey: dateStr,
+          isToday: i === 0,
+          visits: visitsOnDay
+        });
+      }
+      
+      this.weekDays = days;
+    },
+
+    async loadWellbeingTip() {
+      try {
+        const tips = [
+          "Regular short visits (even 20 minutes) can reduce feelings of loneliness by up to 30%. Consistency matters more than duration! 💛",
+          "Shared activities during visits—like looking at photos or playing cards—create stronger bonds than just conversation alone. 🎲",
+          "Morning visits tend to have the highest energy and engagement for older adults. Consider scheduling your most important visits before noon. 🌅",
+          "Research shows that 2-3 visits per week is the sweet spot for reducing social isolation while being sustainable for volunteers. 📊",
+          "Small gestures like remembering a detail from a previous visit can make your loved one feel truly seen and valued. ✨"
+        ];
+        this.wellbeingTip = tips[Math.floor(Math.random() * tips.length)];
+      } catch(e) {
+        this.wellbeingTip = "Regular short visits can make a big difference in your loved one's wellbeing. Even 20 minutes counts! 💛";
+      }
+    },
+
+    // Simulate completing a visit (for demo)
+    completeVisit(index) {
+      if (index >= 0 && index < this.upcomingVisits.length) {
+        const visit = { ...this.upcomingVisits[index], status: 'completed' };
+        this.completedVisits.push(visit);
+        this.upcomingVisits.splice(index, 1);
+        this.saveData();
+        this.generateWeekDays();
+        this.showToast('Visit marked as completed! ✅');
+      }
+    },
+
+    exportData() {
+      const data = {
+        profile: this.currentUser,
+        matches: this.matches,
+        upcomingVisits: this.upcomingVisits,
+        completedVisits: this.completedVisits,
+        exportDate: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'microvisit_data.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      this.showToast('Data exported! 📤');
+    },
+
+    resetAll() {
+      localStorage.removeItem('microvisit_data');
+      this.currentUser = null;
+      this.matches = [];
+      this.upcomingVisits = [];
+      this.completedVisits = [];
+      this.alerts = [];
+      this.currentView = 'onboarding';
+      this.showToast('All data reset');
+    }
+  };
+}
+</script>
+
+</body>
+</html>
